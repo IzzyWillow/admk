@@ -193,7 +193,8 @@ class Graph:
             indices[2*i+1] = int(self.topol[1,i])
             data[2*i:2*i+2]    = [1.0,-1.0]
             #print(topol[i,:],indptr[2*i:2*i+2],indices[2*i:2*i+2],data[2*i:2*i+2])
-        signed_incidence = sp.sparse.csr_matrix((data, (indptr,indices)),shape=(self.n_edges, self.n_nodes))
+        signed_incidence = sp.sparse.csr_matrix(
+            (data, (indptr,indices)),shape=(self.n_edges, self.n_nodes))
         return signed_incidence
 
     def save_time_series(self):
@@ -512,6 +513,9 @@ class AdmkSolver:
 
             # update tdens
             tdpot.tdens = tdpot.tdens - ctrl.deltat * update
+
+            # update flux
+            tdpot
 
             ierr = self.syncronize(problem, tdpot, ctrl)  
             tdpot.time=tdpot.time+ctrl.deltat
