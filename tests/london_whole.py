@@ -1,3 +1,7 @@
+"""
+Additive estimation of entire network flux
+"""
+
 #%%
 # import Solver 
 from copy import deepcopy as cp
@@ -25,7 +29,7 @@ import networkx as nx
 import pickle
 import pandas as pd
 import matplotlib.cm as cmx
-
+import matplotlib.pyplot as plt
 #%%
 def get_topology(filename, nodes=None):
     df = pd.read_csv(filename, sep=',')
@@ -45,6 +49,7 @@ def get_tranfert(filename,station_id):
     """
     Get the transfer from a station to all the nodes
     """
+    #THIS SHOULD BE THE OTHER WAY ROUND FOR THE CURRENT OD MATRIX  
     df = pd.read_csv(filename, sep=',')
     return df[str(station_id)].fillna(0).values
 
@@ -60,8 +65,8 @@ def node2index(nodes_list):
     for i, node in enumerate(nodes_list):
         node2index[node] = i
     return node2index
-
-def test_main(od_matrix_fp, verbose=0):
+    
+def run_main(od_matrix_fp, station_id, verbose=0):
     # read topology
     topol, weight = get_topology('NetworkData/edge_attributes.csv')
 
@@ -74,21 +79,21 @@ def test_main(od_matrix_fp, verbose=0):
     # convert topology to be index based
     topol_index = np.array([node2ind[topol[0]], node2ind[topol[1]]])
     
+    od_matrix = pd.read_csv(od_matrix_fp, sep=',', index_col=0)
     # get the list of nodes involved in the transfer
-    transfer_nodes = get_transfer_nodes(od_matrix_fp)
+    transfer_nodes = od_matrix.index.values
 
     # create rhs term from a given station, say, the first one
-    rhs = get_tranfert(od_matrix_fp, transfer_nodes[0])
+    rhs = od_matrix.loc[str(station_id)].fillna(0).values
     forcing = np.zeros(len(nodes_list))
     # balance the mass: outlet = inlet
     forcing[node2ind[transfer_nodes]] = rhs
     mass = forcing.sum()
     forcing[node2ind[transfer_nodes[0]]] = -mass
 
-    print('f', forcing.size)
-    print('w', weight.size)
-    print('inc',topol_index.shape)
-   
+    # print('f', forcing.size)
+    # print('w', weight.size)
+    # print('inc',topol_index.shape)
 
     # Init. graph problem
     graph=Graph(topol_index)
@@ -137,7 +142,7 @@ def test_main(od_matrix_fp, verbose=0):
     print('ierr = ' + str(ierr))
     print('ierr=', ierr, admk.ierr_dictionary(ierr))
     # check if convergence is achieved
-    return 0
+    return solution, problem
 
 def to_networkx(arr, tdens, pot, flux=None):
     # arr: array of edges 
@@ -175,95 +180,28 @@ def to_networkx(arr, tdens, pot, flux=None):
     # for e in edges:
     
 #%%
-# Taking the functionality out of test_main() to test it
-# read topology
 od_matrix_fp = 'NetworkData/rods_station_total_matrix_nodes.csv'
 
-matrix_nodes = pd.read_csv(od_matrix_fp, 
-                           index_col=0).index.values
-topol, weight = get_topology('NetworkData/edge_attributes.csv',
-                             nodes=matrix_nodes)
+stations = pd.read_csv(od_matrix_fp).index.values
+topol, weight = get_topology('NetworkData/edge_attributes.csv')
 
-# get nodes list
-nodes_list = np.unique(topol)
-
-# build a map from node to index in nodes_list
-node2ind = node2index(nodes_list)
-
-# convert topology to be index based
-topol_index = np.array([node2ind[topol[0]], node2ind[topol[1]]])
-
-# get the list of nodes involved in the transfer
-transfer_nodes = get_transfer_nodes(
-    od_matrix_fp)
-
-# create rhs term from a given station, say, the first one
-rhs = get_tranfert(od_matrix_fp, transfer_nodes[0])
-
-forcing = np.zeros(len(nodes_list))
-# balance the mass
-forcing[node2ind[transfer_nodes]] = rhs
-mass = forcing.sum()  # total passengers in flow
-forcing[node2ind[transfer_nodes[0]]] = -mass
-
-print('f', forcing.size)
-print('w', weight.size)
-print('inc',topol_index.shape)
+flux = np.zeros_like(topol.shape[1])
+pot = np.zeros_like(stations)
+conduct = np.zeros_like(topol.shape[1])
 
 #%%
-# Init. graph problem
-graph=Graph(topol_index)
-print('graph size',graph.n_edges,graph.n_nodes)
+for s_id in stations:
+    print(s_id)
+    solution, problem = run_main(od_matrix_fp=od_matrix_fp, 
+                                 station_id=s_id)
 
-# Init. signed incidence matrix
-# Entry is +1 if node is starting point, -1 if end point
-incidence_matrix = graph.signed_incidence_matrix()
-incidence_matrix_transpose = incidence_matrix.transpose()
-
-
-# Init problem (same graph)
-print(incidence_matrix_transpose.size)
-problem = MinNorm(incidence_matrix_transpose, weight)
-
-# set problem inputs (forcing loads, powers, etc) and check 
-problem = problem.set_inputs(forcing, 1.0)
-consistency = problem.check_inputs()
-
-# Init container for transport problem solution with
-# solution.tdens=edge conductivity
-# solution.pot=potential
-# solution.flux=conductivity * potential gradient
-solution = TdensPotentialVelocity(graph.n_edges,graph.n_nodes)
-
-# Init solver
-admk = AdmkSolver()
-
-# Init solver controls
-ctrl = AdmkControls()
-
-# mehtod and max_iter
-ctrl.time_discretization_method = 'explicit_tdens'
-ctrl.max_iter = 1000
-
-# deltat controls
-ctrl.deltat_control = 'fixed'
-ctrl.deltat = 1e-1
-ctrl.min_deltat = 1e-1
-ctrl.max_deltat = 1e4
-
-# verbosity
-ctrl.verbose = 0
-#%%
-# solve
-ierr = admk.solve(problem, solution, ctrl)
-print('ierr=', ierr, admk.ierr_dictionary(ierr))
-# # check if convergence is achieved
-# return 0
+    flux += solution.flux
+    pot += solution.pot
+    conduct += solution.tdens
 
 #%%
 # Save solution as pickle
-admk_dict = {'topol': topol, 'topol_ind': topol_index, 'solution': solution,
-             'problem': problem, 'nodes': np.unique(topol)}
+admk_dict = {'topol': topol, 'flux': flux, 'pot': pot, 'conduct': conduct}
 pickle.dump(admk_dict, open('./results/london_test_total.p', 'wb'))
 
 #%%

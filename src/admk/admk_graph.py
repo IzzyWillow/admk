@@ -67,7 +67,9 @@ class TdensPotentialVelocity:
                                      ' {len(pot0):%d} = n_pot')
                 raise myError
             self.pot[:]=pot0[:]
+        self.flux = np.zeros(n_pot)
         self.time=0.0
+        
         if ( not pot0 is None):
             self.time=time0
         
@@ -515,7 +517,7 @@ class AdmkSolver:
             tdpot.tdens = tdpot.tdens - ctrl.deltat * update
 
             # update flux
-            tdpot
+            tdpot.flux = flux 
 
             ierr = self.syncronize(problem, tdpot, ctrl)  
             tdpot.time=tdpot.time+ctrl.deltat
@@ -748,3 +750,14 @@ class AdmkSolver:
             ctrl.set_before_iteration()
 
         return ierr
+    
+    def ierr_dictionary(self,ierr):
+        """
+        Return a description of the error
+        """
+        if ierr == 0:
+            return 'No error'
+        if ierr == 1:
+            return 'Error in iterate procedure'
+        if ierr == 2:
+            return 'Maximum number of iterations reached'
