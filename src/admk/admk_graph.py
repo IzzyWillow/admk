@@ -507,7 +507,8 @@ class AdmkSolver:
             grad = problem.potential_gradient(tdpot.pot)
             flux = tdpot.tdens*grad
             res = problem.matrix*flux-problem.rhs
-            print(sp.linalg.norm(res))
+            if ctrl.verbose > 0:
+                print(sp.linalg.norm(res))
             
             #print('{:.2E}'.format(min(normgrad))+'<=GRAD<='+'{:.2E}'.format(max(normgrad)))
             pmass=problem.q_exponent/(2-problem.q_exponent)
@@ -533,7 +534,9 @@ class AdmkSolver:
 
 
             update = - trans_prime * (grad * grad) +  trans_prime
-            print('{:.2E}'.format(min(update))+'<=UPDATE<='+'{:.2E}'.format(max(update)))
+            if ctrl.verbose > 0:
+                print('{:.2E}'.format(min(update))+'<=UPDATE<='+
+                      '{:.2E}'.format(max(update)))
 
             # update gfvar and tdens
             gfvar = gfvar - ctrl.deltat * update
