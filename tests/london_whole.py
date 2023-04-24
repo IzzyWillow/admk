@@ -30,6 +30,8 @@ import pickle
 import pandas as pd
 import matplotlib.cm as cmx
 import matplotlib.pyplot as plt
+import math
+
 #%%
 def get_topology(filename, nodes=None):
     df = pd.read_csv(filename, sep=',')
@@ -68,7 +70,8 @@ def node2index(nodes_list):
     
 def run_main(od_matrix, station_id, verbose=0):
     # read topology
-    topol, weight = get_topology('NetworkData/edge_attributes.csv')
+    topol, weight = get_topology('NetworkData/edge_attributes.csv', 
+                                  nodes=od_matrix.index.values)
 
     # get nodes list
     nodes_list = np.unique(topol)
@@ -103,7 +106,7 @@ def run_main(od_matrix, station_id, verbose=0):
     incidence_matrix_transpose = incidence_matrix.transpose()
     
     # Init problem (same graph)
-    print(incidence_matrix_transpose.size)
+    # print(incidence_matrix_transpose.size)
     problem = MinNorm(incidence_matrix_transpose, weight)
 
     # set problem inputs (forcing loads, powers, etc) and check 
@@ -185,22 +188,28 @@ od_matrix.columns = od_matrix.columns.astype(int)
 
 od_matrix = od_matrix.drop(columns=[153])
 
-stations = pd.read_csv(od_matrix_fp).index.values
-topol, weight = get_topology('NetworkData/edge_attributes.csv')
+stations = od_matrix.index.values
+topol, weight = get_topology('NetworkData/edge_attributes.csv', 
+                             nodes=od_matrix.index.values)
 
 flux = np.zeros(topol.shape[1])
-pot = np.zeros_like(stations)
+pot = np.zeros_like(stations).astype(float)
 conduct = np.zeros(topol.shape[1])
 
 #%%
+start_all = cputiming.perf_counter()
 for s_id in stations:
     print(s_id)
     solution, problem = run_main(od_matrix=od_matrix, 
                                  station_id=s_id)
-
     flux += np.abs(solution.flux)
     pot += solution.pot
     conduct += np.abs(solution.tdens)
+end_all = cputiming.perf_counter()
+
+# elapsed times
+e_time = end_all-start_all
+print(f"Elapsed time: {math.floor(e_time/60)}:{int(e_time%60):02}")
 
 #%%
 # Save solution as pickle
@@ -209,4 +218,4 @@ pickle.dump(admk_dict, open('./results/london_test_total.p', 'wb'))
 
 #%%
 if __name__ == "__main__":
-    sys.exit(test_main(2))
+    sys.exit(run_main(2))
