@@ -58,15 +58,15 @@ def node2index(nodes_list):
     Given a list of nodes, return
     node2index: node2index[node_id] = i and -1 if node_id is not in nodes_list
     """
-    print(nodes_list)
+    # print(nodes_list)
     n_nodes = np.amax(nodes_list)
-    print(np.amin(nodes_list),n_nodes)
+    # print(np.amin(nodes_list),n_nodes)
     node2index = - np.ones(n_nodes+1, dtype=int)*2*n_nodes
     for i, node in enumerate(nodes_list):
         node2index[node] = i
     return node2index
     
-def run_main(od_matrix_fp, station_id, verbose=0):
+def run_main(od_matrix, station_id, verbose=0):
     # read topology
     topol, weight = get_topology('NetworkData/edge_attributes.csv')
 
@@ -79,12 +79,11 @@ def run_main(od_matrix_fp, station_id, verbose=0):
     # convert topology to be index based
     topol_index = np.array([node2ind[topol[0]], node2ind[topol[1]]])
     
-    od_matrix = pd.read_csv(od_matrix_fp, sep=',', index_col=0)
     # get the list of nodes involved in the transfer
     transfer_nodes = od_matrix.index.values
 
     # create rhs term from a given station, say, the first one
-    rhs = od_matrix.loc[str(station_id)].fillna(0).values
+    rhs = od_matrix.loc[station_id].fillna(0).values
     forcing = np.zeros(len(nodes_list))
     # balance the mass: outlet = inlet
     forcing[node2ind[transfer_nodes]] = rhs
@@ -181,23 +180,27 @@ def to_networkx(arr, tdens, pot, flux=None):
     
 #%%
 od_matrix_fp = 'NetworkData/rods_station_total_matrix_nodes.csv'
+od_matrix = pd.read_csv(od_matrix_fp, sep=',', index_col=0)
+od_matrix.columns = od_matrix.columns.astype(int)
+
+od_matrix = od_matrix.drop(columns=[153])
 
 stations = pd.read_csv(od_matrix_fp).index.values
 topol, weight = get_topology('NetworkData/edge_attributes.csv')
 
-flux = np.zeros_like(topol.shape[1])
+flux = np.zeros(topol.shape[1])
 pot = np.zeros_like(stations)
-conduct = np.zeros_like(topol.shape[1])
+conduct = np.zeros(topol.shape[1])
 
 #%%
 for s_id in stations:
     print(s_id)
-    solution, problem = run_main(od_matrix_fp=od_matrix_fp, 
+    solution, problem = run_main(od_matrix=od_matrix, 
                                  station_id=s_id)
 
-    flux += solution.flux
+    flux += np.abs(solution.flux)
     pot += solution.pot
-    conduct += solution.tdens
+    conduct += np.abs(solution.tdens)
 
 #%%
 # Save solution as pickle
