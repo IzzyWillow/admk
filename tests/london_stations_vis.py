@@ -26,11 +26,96 @@ def remove_axes(ax):
                     labelbottom = False, bottom = False)
 
     return ax
-#%%
-# count_csv = pd.read_csv('./NetworkData/rods_station_am_matrix_nodes.csv')
-# count_csv = count_csv.groupby(
-#     ['OrigName', 'DestName'], as_index=False).agg('sum')
 
+def check_edge_columns(df, ntwrk):
+    """
+    Checks if edges are swapped in the DataFrame header compared to the 
+    representation in the networkx Graph. Swaps order if incorrect.
+    """
+    orig_name = []
+    new_name = []
+    for e in list(ntwrk.edges):
+        if e in list(df.columns.values):
+            pass
+        elif (e[1], e[0]) in list(df.columns.values):
+            orig_name.append((e[1], e[0]))
+            new_name.append(e)
+        else:
+            raise KeyError(f'Neither {e} nor {(e[1], e[0])} in column names')            
+    
+    df = df.rename(columns=dict(zip(orig_name, new_name)))
+
+    return df
+
+def check_node_columns(df, ntwrk):
+    """
+    Checks all nodes are present in DataFrame
+    """
+    missing = []
+
+    for n in list(ntwrk.nodes()):
+        i
+
+def plot_edges(data, ntwrk, label, single_node=None, title=None, xylim=None, 
+               savepath=None):
+
+    fig, ax = plt.subplots(figsize=(6.4,3.6))
+
+    ax.patch.set_facecolor('grey')
+
+    clrs = data
+    nx.draw_networkx_edges(ntwrk, width=2, edge_color=clrs, 
+        nodesize=0, pos=pos_dict, ax=ax)
+    
+    if single_node is not None:
+        nx.draw_networkx_nodes(ntwrk, width=2, node_size=10, pos=pos_dict, 
+                               node_color='r', nodelist=[single_node], ax=ax)
+
+    sm = plt.cm.ScalarMappable(cmap='viridis', 
+                               norm=plt.Normalize(vmin=np.nanmin(clrs), 
+                                                  vmax=np.nanmax(clrs)))
+    sm.set_array([])
+
+    cbar = plt.colorbar(sm, label=label)
+    if title is not None:
+        ax.set_title(title)
+    if xylim is not None:
+        ax.set_xlim(xylim[0])
+        ax.set_ylim(xylim[1])
+    ax.set_aspect('equal')
+    plt.tight_layout()
+
+    if savepath is not None:
+        plt.savefig(savepath, dpi=300)
+
+def plot_nodes(data, ntwrk, label, title=None, xylim=None, savepath=None):
+    
+    fig, ax = plt.subplots(figsize=(6.4,3.6))
+    # ax.grid(b=None)
+    ax.patch.set_facecolor('grey')
+
+    pot_colour = data
+    edge = nx.draw_networkx_edges(ntwrk, pos=pos_dict, 
+        node_size=0, ax=ax, color='k')
+
+    pot = nx.draw_networkx_nodes(ntwrk, pos=pos_dict,
+        node_color=pot_colour, node_size=5, ax=ax, cmap='YlOrRd', )
+
+    sm2 = plt.cm.ScalarMappable(cmap='YlOrRd', 
+                            norm=plt.Normalize(vmin=np.nanmin(pot_colour), 
+                                                vmax=np.nanmax(pot_colour)))
+    sm2.set_array([])
+    cbar2 = plt.colorbar(sm2, label=label)
+    if title is not None:
+        ax.set_title('Node potential')
+    if xylim is not None:
+        ax.set_xlim(xylim[0])
+        ax.set_ylim(xylim[1])
+    ax.set_aspect('equal')
+    plt.tight_layout()
+    if savepath is not None:
+        plt.savefig(savepath, dpi=300)
+#%%
 ntwrk_graph = pickle.load(open('../../urban-growth/LondonNetwork/core_data'
     '/network/network2011.p', 'rb'))
 pos_attr = nx.get_node_attributes(ntwrk_graph, 'pos')
@@ -48,166 +133,64 @@ matrix_nodes = pd.read_csv('NetworkData/rods_station_total_matrix_nodes.csv',
                            index_col=0).index.values
 
 #%%
-admk_results = pickle.load(open('./results/london_test_total.p', 'rb'))
-orig_topol = admk_results['topol']
-topol_ind = admk_results['topol_ind']
-solution = admk_results['solution']
-problem = admk_results['problem']
+admk_results = pickle.load(open('./results/london_total_df.p', 'rb'))
 
+orig_topol = admk_results['topol']
 admk_ntwrk = ntwrk_graph.subgraph(admk_results['nodes'])
+
+flux_df = check_edge_columns(df=admk_results['flux_df'], ntwrk=admk_ntwrk)
+pot_df = admk_results['pot_df']
+conduct_df = check_edge_columns(df=admk_results['conduct_df'], ntwrk=admk_ntwrk)
 
 bounds = np.array(list(nx.get_node_attributes(admk_ntwrk, 'pos').values())) *1000
 ylim = bounds[:, 1].min() - 1000, bounds[:, 1].max() + 1000
 xlim = bounds[:, 0].min() - 1000, bounds[:, 0].max() + 1000
+#%%
+od_edges = [tuple(e) for e in orig_topol.T[:, :]]
+
+orig_node = 52
+
+log_cond_vals = np.log10(
+    conduct_df.loc[orig_node, list(admk_ntwrk.edges)].values)
+plot_edges(data=log_cond_vals, ntwrk=admk_ntwrk, label='log$_{10}$$\mu$', 
+           title='Edge conductivity (log)', savepath=None, xylim=(xlim, ylim),
+           single_node=orig_node)
+
+cond_vals = conduct_df.loc[orig_node, list(admk_ntwrk.edges)].values
+plot_edges(data=cond_vals, ntwrk=admk_ntwrk, label='$\mu$', xylim=(xlim, ylim),
+           title='Edge conductivity', savepath=None, single_node=orig_node)
+
+pot_vals = pot_df.loc[orig_node, list(admk_ntwrk.nodes)]
+plot_nodes(data=pot_vals, ntwrk=admk_ntwrk, label='$p_{v}$', xylim=(xlim, ylim),
+           title='Node potential')#, single_node=orig_node)
+
+flux_vals = flux_df.loc[orig_node, list(admk_ntwrk.edges)].values
+plot_edges(data=flux_vals, ntwrk=admk_ntwrk, label='|$F_{e}$|', 
+           title='Passenger flux', savepath=None, xylim=(xlim, ylim), 
+           single_node=orig_node)
 
 #%%
 od_edges = [tuple(e) for e in orig_topol.T[:, :]]
-nx.set_node_attributes(admk_ntwrk, 
-    {n: solution.pot[i]  for i, n in enumerate(matrix_nodes)}, name='potential')
 
-nx.set_edge_attributes(admk_ntwrk,
-    {tuple(e): solution.tdens[i] for i, e in enumerate(od_edges)}, 
-    name='tdens') 
-
-nx.set_edge_attributes(admk_ntwrk,
-    {tuple(e): solution.flux[i] for i, e in enumerate(od_edges)}, 
-    name='flux') 
-#%%
-
-plt.style.use("default")
-fig, ax = plt.subplots(figsize=(6.4,3.6))
-# fig = plt.figure(figsize=(10,5))
-
-# ax = fig.add_axes([0.2, 0, 0.8, 1])
-# ax.grid(b=None)
-ax.patch.set_facecolor('grey')
-
-# ax = remove_axes(ax=ax)
-
-# ax.set_xlim(495000.0, 568000.0)
-# ax.set_ylim(159000.0, 208000.0)
-
-# ax.set_xlim(xvyv['xv'].min()*1000+5000, xvyv['xv'].max()*1000-5000)
-# ax.set_ylim(xvyv['yv'].min()*1000+11000,  xvyv['yv'].max()*1000-5000)
-
-# low_cond_edge = []
-# zero_cond_edge = []
-# for e in orig_topol.T[:, :]:
-#     u = e[0]
-#     v = e[1]
-#     x = [pos_dict[u][0],pos_dict[v][0]]
-#     y = [pos_dict[u][1],pos_dict[v][1]]
-#     lw = np.log10(admk_ntwrk.edges[(u,v)]['tdens'])
-#     if lw < 0:
-#         lw=0.1
-#         low_cond_edge.append(tuple(e))
-
-#     l = Line2D(x,y,linewidth=lw, solid_capstyle='round', color='limegreen')
-#     ax.add_line(l)
-
-cond_colours = \
-    np.log10(list(nx.get_edge_attributes(admk_ntwrk, 'tdens').values()))
-cond = nx.draw_networkx_edges(admk_ntwrk, width=2, edge_color=cond_colours, 
-    nodesize=0, pos=pos_dict, ax=ax)
-
-# nx.draw_networkx_edges(admk_ntwrk, edgelist=low_cond_edge, width=0.5, 
-#     edge_color='m', nodesize=0, pos=pos_dict, ax=ax)
+# orig_node = 52
+# log_cond_vals = np.log10(
+#     conduct_df.loc[orig_node, list(admk_ntwrk.edges)].values)
 
 
-sm = plt.cm.ScalarMappable(cmap='viridis', 
-                           norm=plt.Normalize(vmin=np.nanmin(cond_colours), 
-                                              vmax=np.nanmax(cond_colours)))
-sm.set_array([])
+plot_edges(data=np.log10(conduct_df[list(admk_ntwrk.edges)].sum(axis=0).values), 
+           ntwrk=admk_ntwrk, label='log$_{10}$$\Sigma_{e}\mu$', 
+           title='Edge conductivity (log)', savepath=None, xylim=(xlim, ylim))
 
-cbar = plt.colorbar(sm, label='log$_{10}$$\mu$')
-ax.set_title('Edge conductivity (log)')
-ax.set_xlim(xlim)
-ax.set_ylim(ylim)
-ax.set_aspect('equal')
-plt.tight_layout()
-plt.savefig('./results/total_logcond.png', dpi=300)
+# cond_vals = conduct_df.loc[orig_node, list(admk_ntwrk.edges)].values
+plot_edges(data=conduct_df[list(admk_ntwrk.edges)].sum(axis=0).values, 
+           ntwrk=admk_ntwrk, label='$\Sigma_{e}\mu$', xylim=(xlim, ylim),
+           title='Edge conductivity', savepath=None)
 
+# # pot_vals = pot_df.loc[orig_node, list(admk_ntwrk.nodes)]
+# plot_nodes(data=pot_df.sum(axis=0), ntwrk=admk_ntwrk, label='$p_{v}$', xylim=(xlim, ylim),
+#            title='Node potential')#, single_node=orig_node)
 
-#%%
-
-plt.style.use("default")
-fig, ax = plt.subplots(figsize=(6.4,3.6))
-
-ax.patch.set_facecolor('grey')
-
-cond_colours = \
-    list(nx.get_edge_attributes(admk_ntwrk, 'tdens').values())
-cond = nx.draw_networkx_edges(admk_ntwrk, width=2, edge_color=cond_colours, 
-    nodesize=0, pos=pos_dict, ax=ax)
-
-sm = plt.cm.ScalarMappable(cmap='viridis', 
-                           norm=plt.Normalize(vmin=np.nanmin(cond_colours), 
-                                              vmax=np.nanmax(cond_colours)))
-sm.set_array([])
-
-cbar = plt.colorbar(sm, label='log$_{10}$$\mu$')
-ax.set_title('Edge conductivity')
-ax.set_xlim(xlim)
-ax.set_ylim(ylim)
-ax.set_aspect('equal')
-plt.tight_layout()
-plt.savefig('./results/total_cond.png', dpi=300)
-#%%
-# fig = plt.figure(figsize=(10,5))
-
-# ax = fig.add_axes([0.2, 0, 0.8, 1])
-fig, ax = plt.subplots(figsize=(6.4,3.6))
-# ax.grid(b=None)
-ax.patch.set_facecolor('grey')
-
-pot_colour = np.array(
-    [admk_ntwrk.nodes[n]['potential'] if n in matrix_nodes else None
-     for n in admk_ntwrk.nodes])
-edge = nx.draw_networkx_edges(admk_ntwrk, pos=pos_dict, 
-    node_size=0, ax=ax, color='k')
-
-pot = nx.draw_networkx_nodes(admk_ntwrk, pos=pos_dict, #nodelist=matrix_nodes, 
-    node_color=pot_colour, node_size=5, ax=ax, cmap='YlOrRd', )
-
-sm2 = plt.cm.ScalarMappable(cmap='YlOrRd', 
-                           norm=plt.Normalize(vmin=np.nanmin(pot_colour), 
-                                              vmax=np.nanmax(pot_colour)))
-sm2.set_array([])
-cbar2 = plt.colorbar(sm2, label='$p_{v}$')
-ax.set_title('Node potential')
-ax.set_xlim(xlim)
-ax.set_ylim(ylim)
-ax.set_aspect('equal')
-plt.tight_layout()
-plt.savefig('./results/total_pot.png', dpi=300)
-#%%
-fig, ax = plt.subplots(figsize=(6.4,3.6))
-# ax = fig.add_axes([0.2, 0, 0.8, 1])
-# ax.grid(b=None)
-ax.patch.set_facecolor('grey')
-# ax = remove_axes(ax=ax)
-ax.axis('equal')
-# ax.set_xlim(495000.0, 568000.0)
-# ax.set_ylim(159000.0, 208000.0)
-ax.set_xlim(xlim)
-ax.set_ylim(ylim)
-
-# flux_colour = np.log10(np.array([admk_ntwrk.edges[e]['flux'] if e in od_edges else np.nan
-#      for e in admk_ntwrk.edges]))
-flux_colour = np.abs(list(nx.get_edge_attributes(admk_ntwrk, 'flux').values()))
-
-nx.draw_networkx_edges(admk_ntwrk, width=2, edge_color=flux_colour,
-   nodesize=0, pos=pos_dict, ax=ax)
-
-sm = plt.cm.ScalarMappable(cmap='viridis', 
-                           norm=plt.Normalize(vmin=np.nanmin(flux_colour), 
-                                              vmax=np.nanmax(flux_colour)))
-sm.set_array([])
-cbar = plt.colorbar(sm, label='|$F_{e}$|')
-ax.set_title('Passenger flux')
-
-ax.set_xlim(xlim)
-ax.set_ylim(ylim)
-ax.set_aspect('equal')
-plt.tight_layout()
-# plt.savefig('./results/total_flux.png', dpi=300)
+# flux_vals = flux_df.loc[orig_node, list(admk_ntwrk.edges)].values
+plot_edges(data=flux_df[list(admk_ntwrk.edges)].sum(axis=0).values, 
+           ntwrk=admk_ntwrk, label='$\Sigma_{e}|F_{e}$|', xylim=(xlim, ylim),
+           title='Passenger flux', savepath=None)
