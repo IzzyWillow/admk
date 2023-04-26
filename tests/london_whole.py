@@ -5,7 +5,7 @@ Additive estimation of entire network flux
 #%%
 # import Solver 
 from copy import deepcopy as cp
-
+from copy import copy
 import sys
 import os
 
@@ -33,6 +33,13 @@ import matplotlib.pyplot as plt
 import math
 
 #%%
+class Recorder:
+    def __init__(self) -> None:
+        self.rec_dict = {}
+
+    def rec_entry(self, k, v):
+        self.rec_dict[k] = v
+
 def get_topology(filename, nodes=None):
     df = pd.read_csv(filename, sep=',')
     if nodes is not None:
@@ -68,7 +75,8 @@ def node2index(nodes_list):
         node2index[node] = i
     return node2index
     
-def run_main(od_matrix, station_id, verbose=0):
+def run_main(od_matrix, station_id, verbose=0, rec_forcing=None,
+             rec_ind_mat=None):
     # read topology
     topol, weight = get_topology('NetworkData/edge_attributes.csv', 
                                   nodes=od_matrix.index.values)
@@ -83,7 +91,7 @@ def run_main(od_matrix, station_id, verbose=0):
     topol_index = np.array([node2ind[topol[0]], node2ind[topol[1]]])
     
     # get the list of nodes involved in the transfer
-    transfer_nodes = od_matrix.index.values
+    transfer_nodes = od_matrix.columns.values
 
     # create rhs term from a given station, say, the first one
     rhs = od_matrix.loc[station_id].fillna(0).values
@@ -91,7 +99,10 @@ def run_main(od_matrix, station_id, verbose=0):
     # balance the mass: outlet = inlet
     forcing[node2ind[transfer_nodes]] = rhs
     mass = forcing.sum()
-    forcing[node2ind[transfer_nodes[0]]] = -mass
+    stn_ind = np.argwhere(transfer_nodes == station_id)[0][0]
+    forcing[node2ind[transfer_nodes[stn_ind]]] = -mass
+    if rec_forcing is not None:
+         rec_forcing.rec_entry(k=s_id, v=copy(forcing))
 
     # print('f', forcing.size)
     # print('w', weight.size)
@@ -108,6 +119,8 @@ def run_main(od_matrix, station_id, verbose=0):
     # Init problem (same graph)
     # print(incidence_matrix_transpose.size)
     problem = MinNorm(incidence_matrix_transpose, weight)
+    if rec_ind_mat is not None:
+         rec_ind_mat.rec_entry(k=s_id, v=incidence_matrix)
 
     # set problem inputs (forcing loads, powers, etc) and check 
     problem = problem.set_inputs(forcing, 1.0)
@@ -195,26 +208,38 @@ topol, weight = get_topology('NetworkData/edge_attributes.csv',
 flux = np.zeros(topol.shape[1])
 pot = np.zeros_like(stations).astype(float)
 conduct = np.zeros(topol.shape[1])
-
+flux = {}
+pot = {}
+conduct = {}
 #%%
+forc_rec = Recorder()
+ind_rec = Recorder()
 start_all = cputiming.perf_counter()
 for s_id in stations:
     print(s_id)
-    solution, problem = run_main(od_matrix=od_matrix, 
-                                 station_id=s_id)
-    flux += np.abs(solution.flux)
-    pot += solution.pot
-    conduct += np.abs(solution.tdens)
+    solution, problem = run_main(od_matrix=od_matrix, station_id=s_id,)
+    flux[s_id] = np.abs(solution.flux)
+    pot[s_id] = solution.pot
+    conduct[s_id] = np.abs(solution.tdens)
 end_all = cputiming.perf_counter()
 
 # elapsed times
-e_time = end_all-start_all
+e_time = end_all-start_all  # Roughly 6m10s
 print(f"Elapsed time: {math.floor(e_time/60)}:{int(e_time%60):02}")
 
 #%%
+flux_df = pd.DataFrame.from_dict(flux, orient='index', 
+                                 columns=list(zip(topol[0], topol[1])))
+pot_df = pd.DataFrame.from_dict(pot, orient='index', 
+                                columns=od_matrix.columns.values)
+conduct_df = pd.DataFrame.from_dict(conduct, orient='index', 
+                                    columns=list(zip(topol[0], topol[1])))
+#%%
 # Save solution as pickle
-admk_dict = {'topol': topol, 'flux': flux, 'pot': pot, 'conduct': conduct}
-pickle.dump(admk_dict, open('./results/london_test_total.p', 'wb'))
+admk_dict = {'topol': topol, 'flux_df': flux_df, 'pot_df': pot_df, 
+             'conduct_df': conduct_df, 'nodes': np.unique(topol)}
+
+pickle.dump(admk_dict, open('./results/london_total_df.p', 'wb'))
 
 #%%
 if __name__ == "__main__":
