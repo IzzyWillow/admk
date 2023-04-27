@@ -73,27 +73,31 @@ def test_main(od_matrix_fp, verbose=0):
     
     # convert topology to be index based
     topol_index = np.array([node2ind[topol[0]], node2ind[topol[1]]])
-    
-    # get the list of nodes involved in the transfer
-    transfer_nodes = get_transfer_nodes(od_matrix_fp)
-
-    # create rhs term from a given station, say, the first one
-    rhs = get_tranfert(od_matrix_fp, transfer_nodes[0])
-    forcing = np.zeros(len(nodes_list))
-    # balance the mass: outlet = inlet
-    forcing[node2ind[transfer_nodes]] = rhs
-    mass = forcing.sum()
-    forcing[node2ind[transfer_nodes[0]]] = -mass
-
-    print('f', forcing.size)
-    print('w', weight.size)
-    print('inc',topol_index.shape)
-   
 
     # Init. graph problem
     graph=Graph(topol_index)
-    print('graph size',graph.n_edges,graph.n_nodes)
+    print('graph n_edges',graph.n_edges,'n_nodes',graph.n_nodes)
     
+
+
+    # get the list of nodes involved in the transfer
+    transfer_nodes = get_transfer_nodes('NetworkData/rods_station_am_matrix_nodes.csv')
+
+    # create rhs term from a given station, say, the first one
+    forcings = []
+    for root_node in transfer_nodes[[0,1]]:
+        rhs = get_tranfert('NetworkData/rods_station_am_matrix_nodes.csv', root_node)
+        forcing = np.zeros(len(nodes_list))
+        # balance the mass
+        forcing[node2ind[transfer_nodes]] = rhs
+        mass = forcing.sum()
+        forcing[node2ind[root_node]] = -mass
+        forcings.append(forcing)
+
+
+    forcing = np.concatenate(forcings)
+   
+   
     # Init. signed incidence matrix
     incidence_matrix = graph.signed_incidence_matrix()
     incidence_matrix_transpose = incidence_matrix.transpose()
@@ -110,32 +114,33 @@ def test_main(od_matrix_fp, verbose=0):
     # solution.tdens=edge conductivity
     # solution.pot=potential
     # solution.flux=conductivity * potential gradient
-    solution = TdensPotentialVelocity(graph.n_edges,graph.n_nodes)
+    
 
     # Init solver
-    admk = AdmkSolver()
+    admk = AdmkSolver(problem)
+    solution = TdensPotentialVelocity(admk.n_tdens, admk.n_pot*admk.problem.n_rhs)
+    
 
     # Init solver controls
     ctrl = AdmkControls()
     
     # mehtod and max_iter
     ctrl.time_discretization_method = 'explicit_tdens'
-    ctrl.max_iter = 1000
+    ctrl.max_iter = 200
     
     # deltat controls
-    ctrl.deltat_control = 'fixed'
+    ctrl.deltat_control = 'expanding'
     ctrl.deltat = 1e-1
-    ctrl.min_deltat = 1e-1
-    ctrl.max_deltat = 1e4
+    ctrl.min_deltat = 1e-2
+    ctrl.max_deltat = 5e-1
     
     # verbosity
     ctrl.verbose = verbose
     
     # solve
     ierr = admk.solve(problem, solution, ctrl)
+    print('ierr=',ierr,admk.ierr_dictionary(ierr))
 
-    print('ierr = ' + str(ierr))
-    print('ierr=', ierr, admk.ierr_dictionary(ierr))
     # check if convergence is achieved
     return 0
 
