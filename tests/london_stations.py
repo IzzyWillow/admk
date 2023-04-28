@@ -144,7 +144,7 @@ def run_main_multicommodity(od_matrix, origin_nodes, verbose=0):
     solution.pot = np.reshape(solution.pot,
                               [len(origin_nodes), len(transfer_nodes)])
     # check if convergence is achieved
-    return solution, problem
+    return solution, problem, topol, topol_index
 
 #%%
 
@@ -163,4 +163,7 @@ if __name__ == "__main__":
     od_matrix.columns = od_matrix.columns.astype(int)
     od_matrix = od_matrix.drop(columns=[153])
 
-    sys.exit(test_main(od_matrix=od_matrix, verbose=0))
+    od_matrix = od_matrix.loc[:, od_matrix.index]
+
+    run_main_multicommodity(od_matrix=od_matrix,
+        origin_nodes=od_matrix.columns.values[:2], verbose=0)
