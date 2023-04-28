@@ -1,8 +1,3 @@
-"""
-Additive estimation of entire network flux
-"""
-
-#%%
 # import Solver
 from copy import deepcopy as cp
 from copy import copy
@@ -18,6 +13,7 @@ from admk import MinNorm
 from admk import TdensPotentialVelocity
 from admk import AdmkControls
 from admk import AdmkSolver
+from london_stations import *
 
 import numpy as np
 from scipy.linalg import norm
@@ -32,54 +28,12 @@ import matplotlib.cm as cmx
 import matplotlib.pyplot as plt
 import math
 
-#%%
-class Recorder:
-    def __init__(self) -> None:
-        self.rec_dict = {}
-
-    def rec_entry(self, k, v):
-        self.rec_dict[k] = v
-
-def get_topology(filename, nodes=None):
-    df = pd.read_csv(filename, sep=',')
-    if nodes is not None:
-        df = df[(df['source'].isin(nodes)) & (df['target'].isin(nodes))]
-    topol = np.array([df['source'].values, df['target'].values])
-    return topol, df['length'].values
-
-def get_transfer_nodes(filename):
-    """
-    Get the list of nodes where the transfer is non-zero
-    """
-    return pd.read_csv(filename, sep=',').iloc[:,0].values
-
-
-def get_tranfert(filename,station_id):
-    """
-    Get the transfer from a station to all the nodes
-    """
-    #THIS SHOULD BE THE OTHER WAY ROUND FOR THE CURRENT OD MATRIX
-    df = pd.read_csv(filename, sep=',')
-    return df[str(station_id)].fillna(0).values
-
-def node2index(nodes_list):
-    """
-    Given a list of nodes, return
-    node2index: node2index[node_id] = i and -1 if node_id is not in nodes_list
-    """
-    # print(nodes_list)
-    n_nodes = np.amax(nodes_list)
-    # print(np.amin(nodes_list),n_nodes)
-    node2index = - np.ones(n_nodes+1, dtype=int)*2*n_nodes
-    for i, node in enumerate(nodes_list):
-        node2index[node] = i
-    return node2index
 
 def run_main(od_matrix, station_id, verbose=0, rec_forcing=None,
              rec_ind_mat=None):
     # read topology
     topol, weight = get_topology('NetworkData/edge_attributes.csv',
-                                  nodes=od_matrix.index.values)
+                                 nodes=od_matrix.index.values)
 
     # get nodes list
     nodes_list = np.unique(topol)
@@ -90,27 +44,27 @@ def run_main(od_matrix, station_id, verbose=0, rec_forcing=None,
     # convert topology to be index based
     topol_index = np.array([node2ind[topol[0]], node2ind[topol[1]]])
 
+    # Init. graph problem
+    graph=Graph(topol_index)
+    print('graph n_edges',graph.n_edges,'n_nodes',graph.n_nodes)
+
     # get the list of nodes involved in the transfer
     transfer_nodes = od_matrix.columns.values
 
     # create rhs term from a given station, say, the first one
-    rhs = od_matrix.loc[station_id].fillna(0).values
-    forcing = np.zeros(len(nodes_list))
-    # balance the mass: outlet = inlet
-    forcing[node2ind[transfer_nodes]] = rhs
-    mass = forcing.sum()
-    stn_ind = np.argwhere(transfer_nodes == station_id)[0][0]
-    forcing[node2ind[transfer_nodes[stn_ind]]] = -mass
-    if rec_forcing is not None:
-         rec_forcing.rec_entry(k=s_id, v=copy(forcing))
-
+    forcings = []
+    for root_node in transfer_nodes[[0,1]]:
+        rhs = get_tranfert('NetworkData/rods_station_am_matrix_nodes.csv', root_node)
+        forcing = np.zeros(len(nodes_list))
+        # balance the mass
+        forcing[node2ind[transfer_nodes]] = rhs
+        mass = forcing.sum()
+        forcing[node2ind[root_node]] = -mass
+        forcings.append(forcing)
+    forcing = np.concatenate(forcings)
     # print('f', forcing.size)
     # print('w', weight.size)
     # print('inc',topol_index.shape)
-
-    # Init. graph problem
-    graph=Graph(topol_index)
-    print('graph size',graph.n_edges,graph.n_nodes)
 
     # Init. signed incidence matrix
     incidence_matrix = graph.signed_incidence_matrix()
@@ -119,8 +73,9 @@ def run_main(od_matrix, station_id, verbose=0, rec_forcing=None,
     # Init problem (same graph)
     # print(incidence_matrix_transpose.size)
     problem = MinNorm(incidence_matrix_transpose, weight)
-    if rec_ind_mat is not None:
-         rec_ind_mat.rec_entry(k=s_id, v=incidence_matrix)
+
+    # if rec_ind_mat is not None:
+    #     rec_ind_mat.rec_entry(k=s_id, v=incidence_matrix)
 
     # set problem inputs (forcing loads, powers, etc) and check
     problem = problem.set_inputs(forcing, 1.0)
@@ -130,23 +85,23 @@ def run_main(od_matrix, station_id, verbose=0, rec_forcing=None,
     # solution.tdens=edge conductivity
     # solution.pot=potential
     # solution.flux=conductivity * potential gradient
-    solution = TdensPotentialVelocity(graph.n_edges,graph.n_nodes)
-
     # Init solver
-    admk = AdmkSolver()
+    admk = AdmkSolver(problem)
+    solution = TdensPotentialVelocity(admk.n_tdens,
+                                      admk.n_pot*admk.problem.n_rhs)
 
     # Init solver controls
     ctrl = AdmkControls()
 
     # mehtod and max_iter
     ctrl.time_discretization_method = 'explicit_tdens'
-    ctrl.max_iter = 1000
+    ctrl.max_iter = 200
 
     # deltat controls
     ctrl.deltat_control = 'fixed'
     ctrl.deltat = 1e-1
-    ctrl.min_deltat = 1e-1
-    ctrl.max_deltat = 1e4
+    ctrl.min_deltat = 1e-2
+    ctrl.max_deltat = 5e-1
 
     # verbosity
     ctrl.verbose = verbose
@@ -177,8 +132,6 @@ flux = {}
 pot = {}
 conduct = {}
 #%%
-forc_rec = Recorder()
-ind_rec = Recorder()
 start_all = cputiming.perf_counter()
 for s_id in stations:
     print(s_id)
